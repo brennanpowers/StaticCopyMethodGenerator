@@ -29,6 +29,9 @@ public class CreateStaticCopyMethodStringGenerator {
         String methodSignature = String.format("public static %s copy(final %s original)", className, className);
         StringBuilder methodBuilder = new StringBuilder(methodSignature);
         methodBuilder.append("{"); // Begin method
+        // Add null check, returning null if original is null
+        String nullCheck = ("if (original == null) { return null; }");
+        methodBuilder.append(nullCheck);
         String copyInitializer = String.format("%s copy = new %s();", className, className);
         methodBuilder.append(copyInitializer);
 
@@ -126,11 +129,16 @@ public class CreateStaticCopyMethodStringGenerator {
     private void appendArrayTypeCopier(final PsiGetterSetter gs, final StringBuilder methodBuilder) {
         Optional<PsiMethod> staticCopyMethod = findStaticCopyMethodForType(gs.getField().getType().getDeepComponentType(), gs.getField().getProject());
 
+        PsiType collectionParameterType = null;
         if (staticCopyMethod.isPresent()) {
+            collectionParameterType = staticCopyMethod.get().getReturnType();
+        }
+
+        if (collectionParameterType != null) {
             String objectType = gs.getField().getType().getDeepComponentType().getCanonicalText();
             String collectionName = String.format("%ss", StringUtils.uncapitalize(objectType));
 
-            String collectionCopier = buildCollectionCopier(gs.getField().getType(), gs.getGetter(), staticCopyMethod.get(), collectionName);
+            String collectionCopier = buildCollectionCopier(collectionParameterType, gs.getGetter(), staticCopyMethod.get(), collectionName);
             String setArray = String.format("copy.%s(%s.toArray(new %s[0]));", gs.getSetter().getName(), collectionName, objectType);
 
             methodBuilder
