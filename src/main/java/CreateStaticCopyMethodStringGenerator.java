@@ -135,7 +135,7 @@ public class CreateStaticCopyMethodStringGenerator {
         }
 
         if (collectionParameterType != null) {
-            String objectType = gs.getField().getType().getDeepComponentType().getCanonicalText();
+            String objectType = gs.getField().getType().getDeepComponentType().getPresentableText();
             String collectionName = String.format("%ss", StringUtils.uncapitalize(objectType));
 
             String collectionCopier = buildCollectionCopier(collectionParameterType, gs.getGetter(), staticCopyMethod.get(), collectionName);
@@ -161,7 +161,7 @@ public class CreateStaticCopyMethodStringGenerator {
         }
 
         if (staticCopyMethod.isPresent()) {
-            String collectionName = String.format("%ss", StringUtils.uncapitalize(parameterType.getCanonicalText()));
+            String collectionName = String.format("%ss", StringUtils.uncapitalize(parameterType.getPresentableText()));
 
             // Build the for loop
             String collectionCopier = buildCollectionCopier(
@@ -213,7 +213,7 @@ public class CreateStaticCopyMethodStringGenerator {
             final PsiMethod collectionParameterTypeStaticCopyMethod,
             final String collectionName
     ) {
-        String objectType = collectionParameterType.getCanonicalText();
+        String objectType = collectionParameterType.getPresentableText();
         String copyMethodName = collectionParameterTypeStaticCopyMethod.getName();
         String objectName = StringUtils.uncapitalize(objectType);
 
