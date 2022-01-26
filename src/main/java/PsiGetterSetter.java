@@ -62,7 +62,7 @@ public class PsiGetterSetter {
      */
     public boolean isSetterFluent() {
         // getName is nullable so protect against that
-        String className = StringUtils.trimToEmpty(getPsiClass().getName());
+        String className = StringUtils.trimToEmpty(getPsiClass().getQualifiedName());
         PsiReturnStatement[] returnStatements = PsiUtil.findReturnStatements(setter);
         boolean returnsThis = false;
         // Only assume it's fluent if it has a single return statement
