@@ -1,3 +1,5 @@
+package com.brennanpowers.plugins.intellij;
+
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
 import com.intellij.psi.search.GlobalSearchScope;
@@ -376,8 +378,9 @@ public class CreateStaticCopyMethodStringGenerator {
             copyFieldString.append(copyField);
             methodBuilder.append(copyFieldString);
             // If the class is a project class then warn the user about a shallow copy
-            boolean fieldIsProjectClass = findClassFromTypeInProject(gs.getField().getType(), gs.getField().getProject()).isPresent();
-            if (fieldIsProjectClass) {
+            Optional<PsiClass> projectClassMaybe = findClassFromTypeInProject(gs.getField().getType(), gs.getField().getProject());
+            // Only warn user if this class is in the project and is not an enum
+            if (projectClassMaybe.isPresent() && !projectClassMaybe.get().isEnum()) {
                 PsiFieldGenerationError shallowCopyWarning = new PsiFieldGenerationError(gs.getField(), PsiFieldGenerationErrorReason.NO_COPY_METHOD);
                 return Optional.of(shallowCopyWarning);
             } else {
@@ -425,8 +428,8 @@ public class CreateStaticCopyMethodStringGenerator {
             copyFieldString.append(copyField);
             methodBuilder.append(copyFieldString);
             // If the class is a project class then warn the user about a shallow copy
-            boolean fieldIsProjectClass = findClassFromTypeInProject(gs.getField().getType(), gs.getField().getProject()).isPresent();
-            if (fieldIsProjectClass) {
+            Optional<PsiClass> projectClassMaybe = findClassFromTypeInProject(gs.getField().getType(), gs.getField().getProject());
+            if (projectClassMaybe.isPresent() && !projectClassMaybe.get().isEnum()) {
                 PsiFieldGenerationError shallowCopyWarning = new PsiFieldGenerationError(gs.getField(), PsiFieldGenerationErrorReason.NO_COPY_METHOD);
                 return Optional.of(shallowCopyWarning);
             } else {
@@ -525,6 +528,7 @@ public class CreateStaticCopyMethodStringGenerator {
         MAP,
         NO_COPY_METHOD,
         INDETERMINATE_TYPE,
-        INDETERMINATE_COLLECTION_TYPE
+        INDETERMINATE_COLLECTION_TYPE,
+        INFINITE_LOOP
     }
 }

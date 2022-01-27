@@ -1,3 +1,5 @@
+package com.brennanpowers.plugins.intellij;
+
 import com.intellij.psi.*;
 import com.intellij.psi.util.PropertyUtil;
 import com.intellij.psi.util.PsiUtil;

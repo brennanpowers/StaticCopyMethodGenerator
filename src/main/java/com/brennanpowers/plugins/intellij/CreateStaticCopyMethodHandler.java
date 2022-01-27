@@ -1,17 +1,11 @@
-import com.intellij.codeInsight.generation.*;
-import com.intellij.openapi.project.Project;
-import com.intellij.psi.*;
-import com.intellij.psi.search.GlobalSearchScope;
-import com.intellij.psi.util.PsiTypesUtil;
-import com.intellij.psi.util.PsiUtil;
-import com.intellij.util.IncorrectOperationException;
-import org.apache.commons.lang.StringUtils;
-import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
+package com.brennanpowers.plugins.intellij;
 
-import javax.swing.*;
+import com.intellij.codeInsight.generation.*;
+import com.intellij.psi.*;
+import com.intellij.util.IncorrectOperationException;
+import org.jetbrains.annotations.NotNull;
+
 import java.util.*;
-import java.util.stream.Collectors;
 
 public class CreateStaticCopyMethodHandler extends GenerateMembersHandlerBase {
     public CreateStaticCopyMethodHandler() {

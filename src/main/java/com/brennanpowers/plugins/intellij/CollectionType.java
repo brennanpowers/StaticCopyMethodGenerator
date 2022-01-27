@@ -1,3 +1,5 @@
+package com.brennanpowers.plugins.intellij;
+
 public enum CollectionType {
     COLLECTION("Collection"),
     SET("Set"),
