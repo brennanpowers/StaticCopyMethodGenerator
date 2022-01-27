@@ -9,6 +9,7 @@ import org.apache.commons.lang3.builder.HashCodeBuilder;
 
 import javax.annotation.Nullable;
 import java.util.Arrays;
+import java.util.List;
 
 /**
  * Class for holding a field, its getter, and its setter, and its containing class
@@ -20,14 +21,20 @@ public class PsiGetterSetter {
     private static final String QUALIFIED_QUEUE_NAME = "java.util.Queue";
     private static final String QUALIFIED_MAP_NAME = "java.util.Map";
 
+    private final PsiClass psiClass;
     private final PsiField field;
     private final PsiMethod getter;
     private final PsiMethod setter;
 
-    public PsiGetterSetter(final PsiField field) {
+    public PsiGetterSetter(final PsiField field, final PsiClass psiClass) {
+        this.psiClass = psiClass;
         this.field = field;
         this.getter = PropertyUtil.findGetterForField(field);
         this.setter = PropertyUtil.findSetterForField(field);
+    }
+
+    public PsiClass getPsiClass() {
+        return psiClass;
     }
 
     public boolean hasGetter() {
@@ -42,10 +49,6 @@ public class PsiGetterSetter {
         return hasGetter() && hasSetter();
     }
 
-    public PsiClass getPsiClass() {
-        return field.getContainingClass();
-    }
-
     public PsiField getField() {
         return field;
     }
@@ -58,13 +61,22 @@ public class PsiGetterSetter {
         return setter;
     }
 
+    public boolean isSuperField() {
+        List<PsiType> superClassesOfClass = Arrays.asList(psiClass.getSuperTypes());
+        PsiType typeOfField = field.getType();
+        return superClassesOfClass.contains(typeOfField);
+    }
+
     /**
      * Determines if a setter is fluent.  A setter is fluent if it has a return type, that type is the same as its
      * class, and it returns `this`.
      */
     public boolean isSetterFluent() {
-        // getName is nullable so protect against that
-        String className = StringUtils.trimToEmpty(getPsiClass().getQualifiedName());
+        PsiClass containingClass = getField().getContainingClass();
+        if (containingClass == null) {
+            return false;
+        }
+        String className = StringUtils.trimToEmpty(containingClass.getQualifiedName());
         PsiReturnStatement[] returnStatements = PsiUtil.findReturnStatements(setter);
         boolean returnsThis = false;
         // Only assume it's fluent if it has a single return statement

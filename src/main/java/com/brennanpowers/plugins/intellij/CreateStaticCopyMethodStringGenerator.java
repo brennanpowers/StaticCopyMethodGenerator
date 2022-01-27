@@ -16,13 +16,15 @@ import java.util.stream.Collectors;
  * Class for generating a static copy method for a PsiClass
  */
 public class CreateStaticCopyMethodStringGenerator {
+    private PsiType lastReturnTypeAdded = null;
+    private List<String> variableNames = new ArrayList<>();
     /**
      * Generate the static copy method for the given class
      */
     public String generateStaticCopyMethod(final PsiClass psiClass, final List<PsiField> fields) {
         List<PsiGetterSetter> getterSetters = new ArrayList<>();
         for (PsiField field : fields) {
-            PsiGetterSetter gs = new PsiGetterSetter(field);
+            PsiGetterSetter gs = new PsiGetterSetter(field, psiClass);
             getterSetters.add(gs);
         }
 
@@ -205,8 +207,15 @@ public class CreateStaticCopyMethodStringGenerator {
             String objectType = gs.getField().getType().getDeepComponentType().getPresentableText();
             String collectionName = String.format("%ss", StringUtils.uncapitalize(objectType));
 
+            // Find non-clashing variable name
+            collectionName = computeUniqueVariableName(collectionName);
+            variableNames.add(collectionName);
+
             String collectionCopier = buildCollectionCopier(collectionParameterType, gs.getGetter(), staticCopyMethod.get(), collectionName);
             String setArray = String.format("copy.%s(%s.toArray(new %s[0]));", gs.getSetter().getName(), collectionName, objectType);
+            lastReturnTypeAdded = gs.getSetter().getReturnType();
+
+            addSemicolonIfNeeded(methodBuilder);
 
             methodBuilder
                     .append(collectionCopier)
@@ -237,6 +246,8 @@ public class CreateStaticCopyMethodStringGenerator {
 
         if (staticCopyMethod.isPresent()) {
             String collectionName = String.format("%ss", StringUtils.uncapitalize(parameterType.getPresentableText()));
+            collectionName = computeUniqueVariableName(collectionName);
+            variableNames.add(collectionName);
 
             // Build the for loop
             String collectionCopier = buildCollectionCopier(
@@ -268,6 +279,10 @@ public class CreateStaticCopyMethodStringGenerator {
                         PsiFieldGenerationError shallowCopyWarning = new PsiFieldGenerationError(gs.getField(), PsiFieldGenerationErrorReason.INDETERMINATE_COLLECTION_TYPE);
                         return Optional.of(shallowCopyWarning);
                 }
+                lastReturnTypeAdded = gs.getSetter().getReturnType();
+
+                addSemicolonIfNeeded(methodBuilder);
+
                 methodBuilder
                         .append(collectionCopier)
                         .append(setterString);
@@ -290,6 +305,33 @@ public class CreateStaticCopyMethodStringGenerator {
             }
         }
         return Optional.empty();
+    }
+
+    private boolean addSemicolonIfNeeded(StringBuilder methodBuilder) {
+        int lastIndex = methodBuilder.length() - 1;
+        if (methodBuilder.lastIndexOf(";") != lastIndex) {
+            if (methodBuilder.lastIndexOf("\n") == lastIndex) {
+                methodBuilder.replace(lastIndex, lastIndex, ";");
+            } else {
+                methodBuilder.append(";");
+            }
+            return true;
+        }
+        return false;
+    }
+
+    private String computeUniqueVariableName(final String variableName) {
+        // Find non-clashing variable name
+        String uniqueVariableName = variableName;
+        if (variableNames.contains(uniqueVariableName)) {
+            int i = 1;
+            while(variableNames.contains(uniqueVariableName)) {
+                // Just add 1, 2, 3, etc to the variable name until it does not have a match
+                uniqueVariableName = String.format("%s%d", variableName, i);
+                i++;
+            }
+        }
+        return uniqueVariableName;
     }
 
     /**
@@ -329,11 +371,14 @@ public class CreateStaticCopyMethodStringGenerator {
      * .setBar(original.getBar());
      */
     private Optional<PsiFieldGenerationError> appendCopyField(final PsiGetterSetter gs, final StringBuilder methodBuilder) {
+        Optional<PsiFieldGenerationError> errorMaybe;
         if (gs.isSetterFluent()) {
-            return appendCopyFieldForFluentSetter(gs, methodBuilder);
+            errorMaybe = appendCopyFieldForFluentSetter(gs, methodBuilder);
         } else {
-            return appendCopyFieldForStandardSetter(gs, methodBuilder);
+            errorMaybe = appendCopyFieldForStandardSetter(gs, methodBuilder);
         }
+        lastReturnTypeAdded = gs.getSetter().getReturnType();
+        return errorMaybe;
     }
 
     /**
@@ -356,7 +401,7 @@ public class CreateStaticCopyMethodStringGenerator {
 
         StringBuilder copyFieldString = new StringBuilder();
 
-        if (methodBuilder.lastIndexOf(";") == methodBuilder.length() - 1) {
+        if (methodBuilder.lastIndexOf(";") == methodBuilder.length() - 1 || !PsiTools.typesAreEqual(gs.getSetter().getReturnType(), lastReturnTypeAdded)) {
             copyFieldString.append("copy");
         }
         if (staticCopyMethod.isPresent()) {

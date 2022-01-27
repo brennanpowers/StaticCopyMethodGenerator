@@ -2,15 +2,13 @@ package com.brennanpowers.plugins.intellij;
 
 import com.intellij.codeInsight.generation.ClassMember;
 import com.intellij.codeInsight.generation.PsiFieldMember;
-import com.intellij.psi.PsiClass;
-import com.intellij.psi.PsiField;
-import com.intellij.psi.PsiMethod;
-import com.intellij.psi.PsiModifier;
+import com.intellij.psi.*;
 import com.intellij.psi.util.PropertyUtil;
 import org.apache.commons.lang3.tuple.Pair;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 public class PsiTools {
     public static List<ClassMember> getClassMembers(final PsiClass psiClass) {
@@ -43,5 +41,16 @@ public class PsiTools {
 
 
         return members;
+    }
+
+    public static boolean typesAreEqual(final PsiType left, final PsiType right) {
+        if (left == null && right == null) {
+            return true;
+        } else if (left == null || right == null) {
+            return false;
+        }
+        String canonicalLeft = left.getCanonicalText();
+        String canonicalRight = right.getCanonicalText();
+        return Objects.equals(canonicalLeft, canonicalRight);
     }
 }
