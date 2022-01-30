@@ -10,7 +10,7 @@ public class CreateStaticCopyMethodAction extends BaseGenerateAction {
         super(new CreateStaticCopyMethodHandler());
     }
 
-    public CreateStaticCopyMethodAction(CodeInsightActionHandler handler) {
+    public CreateStaticCopyMethodAction(final CodeInsightActionHandler handler) {
         super(handler);
     }
 }

@@ -18,6 +18,7 @@ import java.util.stream.Collectors;
 public class CreateStaticCopyMethodStringGenerator {
     private PsiType lastReturnTypeAdded = null;
     private List<String> variableNames = new ArrayList<>();
+
     /**
      * Generate the static copy method for the given class
      */
@@ -132,6 +133,21 @@ public class CreateStaticCopyMethodStringGenerator {
             );
             methodBuilder.append(warning);
         }
+
+        List<String> infiniteLoop = errors
+                .stream()
+                .filter(error -> error.getReason() == PsiFieldGenerationErrorReason.INFINITE_LOOP)
+                .map(error -> error.getPsiField().getName())
+                .collect(Collectors.toList());
+
+        if (!infiniteLoop.isEmpty()) {
+            methodBuilder.append("\n");
+            String warning = String.format(
+                    "/* POSSIBLE INFINITE LOOP DETECTED VIA COPY METHODS FOR THESE FIELDS: %s */",
+                    StringUtils.join(infiniteLoop, ", ")
+            );
+            methodBuilder.append(warning);
+        }
     }
 
     /**
@@ -210,6 +226,8 @@ public class CreateStaticCopyMethodStringGenerator {
             // Find non-clashing variable name
             collectionName = computeUniqueVariableName(collectionName);
             variableNames.add(collectionName);
+            String nullCheck = String.format("if (original.%s() != null) {", gs.getGetter().getName());
+            methodBuilder.append(nullCheck);
 
             String collectionCopier = buildCollectionCopier(collectionParameterType, gs.getGetter(), staticCopyMethod.get(), collectionName);
             String setArray = String.format("copy.%s(%s.toArray(new %s[0]));", gs.getSetter().getName(), collectionName, objectType);
@@ -217,22 +235,28 @@ public class CreateStaticCopyMethodStringGenerator {
 
             addSemicolonIfNeeded(methodBuilder);
 
+            String elseSetNull = String.format("} else { copy.%s(null); }", gs.getSetter().getName());
+
             methodBuilder
                     .append(collectionCopier)
-                    .append(setArray);
+                    .append(setArray)
+                    .append(elseSetNull);
+
+            Optional<PsiFieldGenerationError> infiniteLoopErrorMaybe = detectPossibleInfiniteLoop(gs);
+            return infiniteLoopErrorMaybe;
         } else {
             // Just make a shallow copy and inform the user
             appendCopyField(gs, methodBuilder);
             PsiFieldGenerationError shallowCopyWarning = new PsiFieldGenerationError(gs.getField(), PsiFieldGenerationErrorReason.INDETERMINATE_TYPE);
             return Optional.of(shallowCopyWarning);
         }
-        return Optional.empty();
     }
 
     /**
      * Append the copy block for a collection type
      */
     private Optional<PsiFieldGenerationError> appendCollectionTypeCopier(final PsiGetterSetter gs, final StringBuilder methodBuilder) {
+        addSemicolonIfNeeded(methodBuilder);
         // Attempt to resolve the parameter of this collection
         PsiType parameterType = PsiUtil.extractIterableTypeParameter(gs.getField().getType(), false);
         Optional<PsiMethod> staticCopyMethod;
@@ -248,6 +272,9 @@ public class CreateStaticCopyMethodStringGenerator {
             String collectionName = String.format("%ss", StringUtils.uncapitalize(parameterType.getPresentableText()));
             collectionName = computeUniqueVariableName(collectionName);
             variableNames.add(collectionName);
+
+            String nullCheck = String.format("if (original.%s() != null) {", gs.getGetter().getName());
+            methodBuilder.append(nullCheck);
 
             // Build the for loop
             String collectionCopier = buildCollectionCopier(
@@ -283,9 +310,14 @@ public class CreateStaticCopyMethodStringGenerator {
 
                 addSemicolonIfNeeded(methodBuilder);
 
+                String elseSetNull = String.format("} else { copy.%s(null); }", gs.getSetter().getName());
                 methodBuilder
                         .append(collectionCopier)
-                        .append(setterString);
+                        .append(setterString)
+                        .append(elseSetNull);
+
+                Optional<PsiFieldGenerationError> infiniteLoopErrorMaybe = detectPossibleInfiniteLoop(gs);
+                return infiniteLoopErrorMaybe;
             } else {
                 // If we couldn't determine the collection type then just append it shallow
                 appendCopyField(gs, methodBuilder);
@@ -304,7 +336,6 @@ public class CreateStaticCopyMethodStringGenerator {
                 return Optional.empty();
             }
         }
-        return Optional.empty();
     }
 
     private boolean addSemicolonIfNeeded(StringBuilder methodBuilder) {
@@ -325,7 +356,7 @@ public class CreateStaticCopyMethodStringGenerator {
         String uniqueVariableName = variableName;
         if (variableNames.contains(uniqueVariableName)) {
             int i = 1;
-            while(variableNames.contains(uniqueVariableName)) {
+            while (variableNames.contains(uniqueVariableName)) {
                 // Just add 1, 2, 3, etc to the variable name until it does not have a match
                 uniqueVariableName = String.format("%s%d", variableName, i);
                 i++;
@@ -401,7 +432,10 @@ public class CreateStaticCopyMethodStringGenerator {
 
         StringBuilder copyFieldString = new StringBuilder();
 
-        if (methodBuilder.lastIndexOf(";") == methodBuilder.length() - 1 || !PsiTools.typesAreEqual(gs.getSetter().getReturnType(), lastReturnTypeAdded)) {
+        boolean lastIndexTerminates = methodBuilder.lastIndexOf(";") == methodBuilder.length() - 1
+                || methodBuilder.lastIndexOf("}") == methodBuilder.length() - 1;
+
+        if (lastIndexTerminates || !PsiTools.typesAreEqual(gs.getSetter().getReturnType(), lastReturnTypeAdded)) {
             copyFieldString.append("copy");
         }
         if (staticCopyMethod.isPresent()) {
@@ -418,6 +452,9 @@ public class CreateStaticCopyMethodStringGenerator {
             );
             copyFieldString.append(copyFieldWithCopyMethod);
             methodBuilder.append(copyFieldString);
+
+            Optional<PsiFieldGenerationError> infiniteLoopErrorMaybe = detectPossibleInfiniteLoop(gs);
+            return infiniteLoopErrorMaybe;
         } else {
             String copyField = String.format(".%s(original.%s())\n", setter.getName(), getter.getName());
             copyFieldString.append(copyField);
@@ -432,7 +469,6 @@ public class CreateStaticCopyMethodStringGenerator {
                 return Optional.empty();
             }
         }
-        return Optional.empty();
     }
 
     /**
@@ -468,6 +504,9 @@ public class CreateStaticCopyMethodStringGenerator {
                     );
             copyFieldString.append(copyFieldWithCopyMethod);
             methodBuilder.append(copyFieldString);
+
+            Optional<PsiFieldGenerationError> infiniteLoopErrorMaybe = detectPossibleInfiniteLoop(gs);
+            return infiniteLoopErrorMaybe;
         } else {
             String copyField = String.format("copy.%s(original.%s());", setter.getName(), getter.getName());
             copyFieldString.append(copyField);
@@ -481,7 +520,6 @@ public class CreateStaticCopyMethodStringGenerator {
                 return Optional.empty();
             }
         }
-        return Optional.empty();
     }
 
     /**
@@ -523,6 +561,49 @@ public class CreateStaticCopyMethodStringGenerator {
                 return Optional.empty();
             } else {
                 return Optional.of(staticCopyMethods.get(0));
+            }
+        }
+        return Optional.empty();
+    }
+
+    private Optional<PsiFieldGenerationError> detectPossibleInfiniteLoop(
+            final PsiGetterSetter gs
+    ) {
+        PsiField field = gs.getField();
+        PsiType fieldType = null;
+        if (PsiTools.isArrayType(field)) {
+            fieldType = field.getType().getDeepComponentType();
+        } else if (PsiTools.isCollectionType(field)) {
+            fieldType = PsiUtil.extractIterableTypeParameter(field.getType(), false);
+        }
+        if (fieldType == null) {
+            fieldType = field.getType();
+        }
+
+        Optional<PsiMethod> staticCopyMethodForField = findStaticCopyMethodForType(fieldType, field.getProject());
+        if (staticCopyMethodForField.isEmpty()) {
+            return Optional.empty();
+        }
+        Optional<PsiClass> psiClassMaybe = findClassFromTypeInProject(
+                fieldType,
+                field.getProject()
+        );
+        if (gs.getPsiClass() == null || gs.getPsiClass().getQualifiedName() == null || psiClassMaybe.isEmpty()) {
+            return Optional.empty();
+        }
+        for (PsiField classField : psiClassMaybe.get().getAllFields()) {
+            PsiType classFieldType = classField.getType();
+            if (PsiTools.isArrayType(classField)) {
+                classFieldType = classFieldType.getDeepComponentType();
+            } else if (PsiTools.isCollectionType(classField)) {
+                classFieldType = PsiUtil.extractIterableTypeParameter(classField.getType(), false);
+            }
+            if (classFieldType != null && classFieldType.equalsToText(gs.getPsiClass().getQualifiedName())) {
+                PsiFieldGenerationError error = new PsiFieldGenerationError(
+                        gs.getField(),
+                        PsiFieldGenerationErrorReason.INFINITE_LOOP
+                );
+                return Optional.of(error);
             }
         }
         return Optional.empty();

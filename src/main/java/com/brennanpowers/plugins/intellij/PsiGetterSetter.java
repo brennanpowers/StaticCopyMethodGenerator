@@ -15,11 +15,6 @@ import java.util.List;
  * Class for holding a field, its getter, and its setter, and its containing class
  */
 public class PsiGetterSetter {
-    private static final String QUALIFIED_COLLECTION_NAME = "java.util.Collection";
-    private static final String QUALIFIED_LIST_NAME = "java.util.List";
-    private static final String QUALIFIED_SET_NAME = "java.util.Set";
-    private static final String QUALIFIED_QUEUE_NAME = "java.util.Queue";
-    private static final String QUALIFIED_MAP_NAME = "java.util.Map";
 
     private final PsiClass psiClass;
     private final PsiField field;
@@ -96,8 +91,7 @@ public class PsiGetterSetter {
      * Determines if this field is an array type.  It is an array type if its type has '[]' in its canonical name
      */
     public boolean isArrayType() {
-        PsiType type = field.getType();
-        return type.getCanonicalText().contains("[]");
+        return PsiTools.isArrayType(getField());
     }
 
     /**
@@ -105,7 +99,7 @@ public class PsiGetterSetter {
      * contains the string 'java.util.Collection'
      */
     public boolean isCollectionType() {
-        return typeOrSuperTypeCanonicalTextContains(QUALIFIED_COLLECTION_NAME);
+        return PsiTools.isCollectionType(getField());
     }
 
     /**
@@ -113,16 +107,7 @@ public class PsiGetterSetter {
      * contains the string 'java.util.Map'
      */
     public boolean isMapType() {
-        return typeOrSuperTypeCanonicalTextContains(QUALIFIED_MAP_NAME);
-    }
-
-    private boolean typeOrSuperTypeCanonicalTextContains(final String canonicalText) {
-        boolean isCollectionType = field.getType().getCanonicalText().contains(canonicalText);
-        if (!isCollectionType) {
-            isCollectionType = Arrays.stream(field.getType().getSuperTypes())
-                    .anyMatch(type -> type.getCanonicalText().contains(canonicalText));
-        }
-        return isCollectionType;
+        return PsiTools.isMapType(getField());
     }
 
     /**
@@ -130,21 +115,9 @@ public class PsiGetterSetter {
      */
     @Nullable
     public CollectionType computeCollectionType() {
-        if (!isCollectionType()) {
-            return null;
-        }
-        String canonicalText = field.getType().getCanonicalText();
-        if (canonicalText.contains(QUALIFIED_COLLECTION_NAME)) {
-            return CollectionType.COLLECTION;
-        } else if (canonicalText.contains(QUALIFIED_LIST_NAME)) {
-            return CollectionType.LIST;
-        } else if (canonicalText.contains(QUALIFIED_SET_NAME)) {
-            return CollectionType.SET;
-        } else if (canonicalText.contains(QUALIFIED_QUEUE_NAME)) {
-            return CollectionType.QUEUE;
-        }
-        return null;
+       return PsiTools.computeCollectionType(getField());
     }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
