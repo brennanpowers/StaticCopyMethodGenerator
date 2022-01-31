@@ -2,15 +2,24 @@ package com.brennanpowers.plugins.intellij;
 
 import com.intellij.codeInsight.generation.ClassMember;
 import com.intellij.codeInsight.generation.PsiFieldMember;
-import com.intellij.psi.*;
-import com.intellij.psi.util.PropertyUtil;
-import org.apache.commons.lang3.tuple.Pair;
+import com.intellij.openapi.project.Project;
+import com.intellij.psi.JavaPsiFacade;
+import com.intellij.psi.PsiClass;
+import com.intellij.psi.PsiField;
+import com.intellij.psi.PsiMethod;
+import com.intellij.psi.PsiModifier;
+import com.intellij.psi.PsiParameter;
+import com.intellij.psi.PsiParameterList;
+import com.intellij.psi.PsiType;
+import com.intellij.psi.search.GlobalSearchScope;
 
 import javax.annotation.Nullable;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
+import java.util.stream.Collectors;
 
 public class PsiTools {
     public static final String QUALIFIED_COLLECTION_NAME = "java.util.Collection";
@@ -90,7 +99,7 @@ public class PsiTools {
         boolean isCollectionType = field.getType().getCanonicalText().contains(canonicalText);
         if (!isCollectionType) {
             isCollectionType = Arrays.stream(field.getType().getSuperTypes())
-                    .anyMatch(type -> type.getCanonicalText().contains(canonicalText));
+                                     .anyMatch(type -> type.getCanonicalText().contains(canonicalText));
         }
         return isCollectionType;
     }
@@ -114,6 +123,64 @@ public class PsiTools {
             return CollectionType.QUEUE;
         }
         return null;
+    }
+
+    /**
+     * Find the static copy method for the given type in the scope of the given project, e.g.
+     * <p>
+     * Foo.copy(Foo original) { ...copy logic... }
+     */
+    public static Optional<PsiMethod> findStaticCopyMethodForType(final PsiType type, final Project project) {
+        Optional<PsiClass> psiClassMaybe = findClassFromTypeInProject(type, project);
+        if (psiClassMaybe.isPresent()) {
+            return findStaticCopyMethodForClass(psiClassMaybe.get());
+        }
+        return Optional.empty();
+    }
+
+    public static Optional<PsiMethod> findStaticCopyMethodForClass(final PsiClass psiClass) {
+        if (psiClass.getQualifiedName() == null) {
+            return Optional.empty();
+        }
+        List<PsiMethod> methods = Arrays.asList(psiClass.getMethods());
+        List<PsiMethod> staticCopyMethods = methods
+                .stream()
+                .filter(method -> {
+                    // First find the static copy methods, confirm they return the given type, and that they have parameters
+                    return method.getName().equals("copy")
+                            && method.getReturnType() != null
+                            && method.getReturnType().equalsToText(psiClass.getQualifiedName())
+                            && method.hasModifierProperty(PsiModifier.STATIC)
+                            && method.hasParameters();
+                })
+                .filter(method -> {
+                    // Now make sure it has exactly one parameter that is the same as the given type
+                    PsiParameterList parameterList = method.getParameterList();
+                    if (parameterList.isEmpty()) {
+                        return false;
+                    }
+                    List<PsiParameter> allParameters = Arrays.asList(parameterList.getParameters());
+                    if (allParameters.size() != 1) {
+                        return false;
+                    }
+                    PsiParameter theParameter = allParameters.get(0);
+                    return theParameter.getType().equalsToText(psiClass.getQualifiedName());
+                })
+                .collect(Collectors.toList());
+        // At this point there should really only be 0 or 1 methods in staticCopyMethods since we have filtered down to a single method signature
+        if (staticCopyMethods.isEmpty()) {
+            return Optional.empty();
+        } else {
+            return Optional.of(staticCopyMethods.get(0));
+        }
+    }
+
+    public static Optional<PsiClass> findClassFromTypeInProject(final PsiType type, final Project project) {
+        String canonicalTypeText = type.getCanonicalText();
+        PsiClass psiClass = JavaPsiFacade
+                .getInstance(project)
+                .findClass(canonicalTypeText, GlobalSearchScope.projectScope(project));
+        return Optional.ofNullable(psiClass);
     }
 
 }

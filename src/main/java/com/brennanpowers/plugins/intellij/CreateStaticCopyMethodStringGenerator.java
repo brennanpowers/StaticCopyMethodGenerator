@@ -1,13 +1,10 @@
 package com.brennanpowers.plugins.intellij;
 
-import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
-import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.util.PsiUtil;
 import org.apache.commons.lang.StringUtils;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -41,160 +38,68 @@ public class CreateStaticCopyMethodStringGenerator {
         methodBuilder.append(copyInitializer);
 
         // Append all the copy field lines
-        List<PsiFieldGenerationError> errors = appendCopyFields(getterSetters, methodBuilder);
+        List<CopyFieldGenerationWarning> warnings = appendCopyFields(getterSetters, methodBuilder);
 
         // Make sure the last character added was a semicolon
         if (methodBuilder.lastIndexOf(";") != methodBuilder.length() - 1) {
             methodBuilder.append(";");
         }
 
-        appendErrorsAndWarnings(errors, methodBuilder);
+        appendErrorsAndWarnings(warnings, methodBuilder);
 
         methodBuilder.append("\n");
         methodBuilder.append("return copy;}"); // End method
         return methodBuilder.toString();
     }
 
-    private void appendErrorsAndWarnings(
-            final List<PsiFieldGenerationError> errors,
-            final StringBuilder methodBuilder
-    ) {
-        List<String> fieldsWithoutGetterAndSetter = errors
-                .stream()
-                .filter(error -> error.getReason() == PsiFieldGenerationErrorReason.NO_GETTER_SETTER)
-                .map(error -> error.getPsiField().getName())
-                .collect(Collectors.toList());
-        if (!fieldsWithoutGetterAndSetter.isEmpty()) {
-            // Inform user that some fields could not be copied due to lack of getter/setter
-            methodBuilder.append("\n");
-            String warning = String.format(
-                    "/* Could not generate lines for these fields due to lack of getter and setter: %s */",
-                    StringUtils.join(fieldsWithoutGetterAndSetter, ", ")
-            );
-            methodBuilder.append(warning);
-        }
-
-        List<String> mapErrors = errors
-                .stream()
-                .filter(error -> error.getReason() == PsiFieldGenerationErrorReason.MAP)
-                .map(error -> error.getPsiField().getName())
-                .collect(Collectors.toList());
-
-        if (!mapErrors.isEmpty()) {
-            methodBuilder.append("\n");
-            String warning = String.format(
-                    "/* Only able to generate shallow copies for Maps: %s */",
-                    StringUtils.join(mapErrors, ", ")
-            );
-            methodBuilder.append(warning);
-        }
-
-        List<String> noCopyMethodErrors = errors
-                .stream()
-                .filter(error -> error.getReason() == PsiFieldGenerationErrorReason.NO_COPY_METHOD)
-                .map(error -> error.getPsiField().getName())
-                .collect(Collectors.toList());
-
-        if (!noCopyMethodErrors.isEmpty()) {
-            methodBuilder.append("\n");
-            String warning = String.format(
-                    "/* Only able to generate shallow copies for the following fields due to lack of static copy method: %s */",
-                    StringUtils.join(noCopyMethodErrors, ", ")
-            );
-            methodBuilder.append(warning);
-        }
-
-        List<String> indeterminateCollectionTypeErrors = errors
-                .stream()
-                .filter(error -> error.getReason() == PsiFieldGenerationErrorReason.INDETERMINATE_COLLECTION_TYPE)
-                .map(error -> error.getPsiField().getName())
-                .collect(Collectors.toList());
-
-        if (!indeterminateCollectionTypeErrors.isEmpty()) {
-            methodBuilder.append("\n");
-            String warning = String.format(
-                    "/* Only able to generate shallow copies for these indeterminate collections: %s */",
-                    StringUtils.join(indeterminateCollectionTypeErrors, ", ")
-            );
-            methodBuilder.append(warning);
-        }
-
-        List<String> indeterminateType = errors
-                .stream()
-                .filter(error -> error.getReason() == PsiFieldGenerationErrorReason.INDETERMINATE_TYPE)
-                .map(error -> error.getPsiField().getName())
-                .collect(Collectors.toList());
-
-        if (!indeterminateType.isEmpty()) {
-            methodBuilder.append("\n");
-            String warning = String.format(
-                    "/* Only able to generate shallow copies for these indeterminate collections: %s */",
-                    StringUtils.join(indeterminateType, ", ")
-            );
-            methodBuilder.append(warning);
-        }
-
-        List<String> infiniteLoop = errors
-                .stream()
-                .filter(error -> error.getReason() == PsiFieldGenerationErrorReason.INFINITE_LOOP)
-                .map(error -> error.getPsiField().getName())
-                .collect(Collectors.toList());
-
-        if (!infiniteLoop.isEmpty()) {
-            methodBuilder.append("\n");
-            String warning = String.format(
-                    "/* POSSIBLE INFINITE LOOP DETECTED VIA COPY METHODS FOR THESE FIELDS: %s */",
-                    StringUtils.join(infiniteLoop, ", ")
-            );
-            methodBuilder.append(warning);
-        }
-    }
-
     /**
      * Append the copy field statements for all the given PsiGetterSetters to the given StringBuilder
      * Returns the fields where the generation could not occur due to lack of getters/setters
      */
-    private List<PsiFieldGenerationError> appendCopyFields(
+    private List<CopyFieldGenerationWarning> appendCopyFields(
             final List<PsiGetterSetter> getterSetters,
             final StringBuilder methodBuilder
     ) {
-        List<PsiFieldGenerationError> errors = new ArrayList<>();
+        List<CopyFieldGenerationWarning> warnings = new ArrayList<>();
         for (PsiGetterSetter gs : getterSetters) {
             if (gs.hasGetterAndSetter()) {
                 if (gs.isArrayType()) {
-                    Optional<PsiFieldGenerationError> errorMaybe = appendArrayTypeCopier(gs, methodBuilder);
-                    errorMaybe.ifPresent(errors::add);
+                    Optional<CopyFieldGenerationWarning> warningMaybe = appendArrayTypeCopier(gs, methodBuilder);
+                    warningMaybe.ifPresent(warnings::add);
                 } else if (gs.isCollectionType()) {
-                    Optional<PsiFieldGenerationError> errorMaybe = appendCollectionTypeCopier(gs, methodBuilder);
-                    errorMaybe.ifPresent(errors::add);
+                    Optional<CopyFieldGenerationWarning> warningMaybe = appendCollectionTypeCopier(gs, methodBuilder);
+                    warningMaybe.ifPresent(warnings::add);
                 } else if (gs.isMapType()) {
                     appendCopyField(gs, methodBuilder);
-                    PsiFieldGenerationError error = new PsiFieldGenerationError(
+                    CopyFieldGenerationWarning warning = new CopyFieldGenerationWarning(
                             gs.getField(),
-                            PsiFieldGenerationErrorReason.MAP
+                            CopyFieldGenerationWarningReason.MAP
                     );
-                    errors.add(error);
+                    warnings.add(warning);
                 } else {
-                    Optional<PsiFieldGenerationError> errorMaybe = appendCopyField(gs, methodBuilder);
-                    errorMaybe.ifPresent(errors::add);
+                    Optional<CopyFieldGenerationWarning> warningMaybe = appendCopyField(gs, methodBuilder);
+                    warningMaybe.ifPresent(warnings::add);
                 }
             } else {
-                PsiFieldGenerationError error = new PsiFieldGenerationError(
+                CopyFieldGenerationWarning warning = new CopyFieldGenerationWarning(
                         gs.getField(),
-                        PsiFieldGenerationErrorReason.NO_GETTER_SETTER
+                        CopyFieldGenerationWarningReason.NO_GETTER_SETTER
                 );
-                errors.add(error);
+                warnings.add(warning);
             }
         }
-        return errors;
+        return warnings;
     }
 
     /**
      * Append the copy block for an array type
      */
-    private Optional<PsiFieldGenerationError> appendArrayTypeCopier(final PsiGetterSetter gs, final StringBuilder methodBuilder) {
+    private Optional<CopyFieldGenerationWarning> appendArrayTypeCopier(
+            final PsiGetterSetter gs,
+            final StringBuilder methodBuilder
+    ) {
         addSemicolonIfNeeded(methodBuilder);
-        Optional<PsiMethod> staticCopyMethod = findStaticCopyMethodForType(
+        Optional<PsiMethod> staticCopyMethod = PsiTools.findStaticCopyMethodForType(
                 gs.getField().getType().getDeepComponentType(),
                 gs.getField().getProject()
         );
@@ -207,13 +112,16 @@ public class CreateStaticCopyMethodStringGenerator {
             appendCopyField(gs, methodBuilder);
 
             // If the class is a project class then warn the user about a shallow copy
-            boolean fieldIsProjectClass = findClassFromTypeInProject(
-                    gs.getField().getType().getDeepComponentType(),
-                    gs.getField().getProject())
+            boolean fieldIsProjectClass = PsiTools.findClassFromTypeInProject(
+                            gs.getField().getType().getDeepComponentType(),
+                            gs.getField().getProject())
                     .isPresent();
 
             if (fieldIsProjectClass) {
-                PsiFieldGenerationError shallowCopyWarning = new PsiFieldGenerationError(gs.getField(), PsiFieldGenerationErrorReason.NO_COPY_METHOD);
+                CopyFieldGenerationWarning shallowCopyWarning = new CopyFieldGenerationWarning(
+                        gs.getField(),
+                        CopyFieldGenerationWarningReason.NO_COPY_METHOD
+                );
                 return Optional.of(shallowCopyWarning);
             } else {
                 return Optional.empty();
@@ -230,8 +138,20 @@ public class CreateStaticCopyMethodStringGenerator {
             String nullCheck = String.format("if (original.%s() != null) {", gs.getGetter().getName());
             methodBuilder.append(nullCheck);
 
-            String collectionCopier = buildCollectionCopier(collectionParameterType, gs.getGetter(), staticCopyMethod.get(), collectionName);
-            String setArray = String.format("copy.%s(%s.toArray(new %s[0]));", gs.getSetter().getName(), collectionName, objectType);
+            String collectionCopier = buildCollectionCopier(
+                    collectionParameterType,
+                    gs.getGetter(),
+                    staticCopyMethod.get(),
+                    collectionName
+            );
+
+            String setArray = String.format(
+                    "copy.%s(%s.toArray(new %s[0]));",
+                    gs.getSetter().getName(),
+                    collectionName,
+                    objectType
+            );
+
             lastReturnTypeAdded = gs.getSetter().getReturnType();
 
             addSemicolonIfNeeded(methodBuilder);
@@ -243,12 +163,15 @@ public class CreateStaticCopyMethodStringGenerator {
                     .append(setArray)
                     .append(elseSetNull);
 
-            Optional<PsiFieldGenerationError> infiniteLoopErrorMaybe = detectPossibleInfiniteLoop(gs);
-            return infiniteLoopErrorMaybe;
+            Optional<CopyFieldGenerationWarning> infiniteLoopWarningsMaybe = detectPossibleInfiniteLoop(gs);
+            return infiniteLoopWarningsMaybe;
         } else {
             // Just make a shallow copy and inform the user
             appendCopyField(gs, methodBuilder);
-            PsiFieldGenerationError shallowCopyWarning = new PsiFieldGenerationError(gs.getField(), PsiFieldGenerationErrorReason.INDETERMINATE_TYPE);
+            CopyFieldGenerationWarning shallowCopyWarning = new CopyFieldGenerationWarning(
+                    gs.getField(),
+                    CopyFieldGenerationWarningReason.INDETERMINATE_TYPE
+            );
             return Optional.of(shallowCopyWarning);
         }
     }
@@ -256,16 +179,22 @@ public class CreateStaticCopyMethodStringGenerator {
     /**
      * Append the copy block for a collection type
      */
-    private Optional<PsiFieldGenerationError> appendCollectionTypeCopier(final PsiGetterSetter gs, final StringBuilder methodBuilder) {
+    private Optional<CopyFieldGenerationWarning> appendCollectionTypeCopier(
+            final PsiGetterSetter gs,
+            final StringBuilder methodBuilder
+    ) {
         addSemicolonIfNeeded(methodBuilder);
         // Attempt to resolve the parameter of this collection
         PsiType parameterType = PsiUtil.extractIterableTypeParameter(gs.getField().getType(), false);
         Optional<PsiMethod> staticCopyMethod;
         if (parameterType != null) {
-            staticCopyMethod = findStaticCopyMethodForType(parameterType, gs.getField().getProject());
+            staticCopyMethod = PsiTools.findStaticCopyMethodForType(parameterType, gs.getField().getProject());
         } else {
             appendCopyField(gs, methodBuilder);
-            PsiFieldGenerationError shallowCopyWarning = new PsiFieldGenerationError(gs.getField(), PsiFieldGenerationErrorReason.INDETERMINATE_TYPE);
+            CopyFieldGenerationWarning shallowCopyWarning = new CopyFieldGenerationWarning(
+                    gs.getField(),
+                    CopyFieldGenerationWarningReason.INDETERMINATE_TYPE
+            );
             return Optional.of(shallowCopyWarning);
         }
 
@@ -304,7 +233,9 @@ public class CreateStaticCopyMethodStringGenerator {
                     default:
                         // We don't handle other collection types
                         appendCopyField(gs, methodBuilder);
-                        PsiFieldGenerationError shallowCopyWarning = new PsiFieldGenerationError(gs.getField(), PsiFieldGenerationErrorReason.INDETERMINATE_COLLECTION_TYPE);
+                        CopyFieldGenerationWarning shallowCopyWarning = new CopyFieldGenerationWarning(
+                                gs.getField(),
+                                CopyFieldGenerationWarningReason.INDETERMINATE_COLLECTION_TYPE);
                         return Optional.of(shallowCopyWarning);
                 }
                 lastReturnTypeAdded = gs.getSetter().getReturnType();
@@ -317,21 +248,30 @@ public class CreateStaticCopyMethodStringGenerator {
                         .append(setterString)
                         .append(elseSetNull);
 
-                Optional<PsiFieldGenerationError> infiniteLoopErrorMaybe = detectPossibleInfiniteLoop(gs);
-                return infiniteLoopErrorMaybe;
+                Optional<CopyFieldGenerationWarning> infiniteLoopWarningsMaybe = detectPossibleInfiniteLoop(gs);
+                return infiniteLoopWarningsMaybe;
             } else {
                 // If we couldn't determine the collection type then just append it shallow
                 appendCopyField(gs, methodBuilder);
-                PsiFieldGenerationError shallowCopyWarning = new PsiFieldGenerationError(gs.getField(), PsiFieldGenerationErrorReason.INDETERMINATE_COLLECTION_TYPE);
+                CopyFieldGenerationWarning shallowCopyWarning = new CopyFieldGenerationWarning(
+                        gs.getField(),
+                        CopyFieldGenerationWarningReason.INDETERMINATE_COLLECTION_TYPE
+                );
                 return Optional.of(shallowCopyWarning);
             }
         } else {
             // If we couldn't find a static copy method for the collection parameter type then append it shallow
             appendCopyField(gs, methodBuilder);
             // If the class is a project class then warn the user about a shallow copy
-            boolean fieldIsProjectClass = findClassFromTypeInProject(parameterType, gs.getField().getProject()).isPresent();
+            boolean fieldIsProjectClass = PsiTools.findClassFromTypeInProject(
+                    parameterType,
+                    gs.getField().getProject()
+            ).isPresent();
             if (fieldIsProjectClass) {
-                PsiFieldGenerationError shallowCopyWarning = new PsiFieldGenerationError(gs.getField(), PsiFieldGenerationErrorReason.NO_COPY_METHOD);
+                CopyFieldGenerationWarning shallowCopyWarning = new CopyFieldGenerationWarning(
+                        gs.getField(),
+                        CopyFieldGenerationWarningReason.NO_COPY_METHOD
+                );
                 return Optional.of(shallowCopyWarning);
             } else {
                 return Optional.empty();
@@ -402,15 +342,18 @@ public class CreateStaticCopyMethodStringGenerator {
      * copy.setFoo(original.getFoo())
      * .setBar(original.getBar());
      */
-    private Optional<PsiFieldGenerationError> appendCopyField(final PsiGetterSetter gs, final StringBuilder methodBuilder) {
-        Optional<PsiFieldGenerationError> errorMaybe;
+    private Optional<CopyFieldGenerationWarning> appendCopyField(
+            final PsiGetterSetter gs,
+            final StringBuilder methodBuilder
+    ) {
+        Optional<CopyFieldGenerationWarning> warningMaybe;
         if (gs.isSetterFluent()) {
-            errorMaybe = appendCopyFieldForFluentSetter(gs, methodBuilder);
+            warningMaybe = appendCopyFieldForFluentSetter(gs, methodBuilder);
         } else {
-            errorMaybe = appendCopyFieldForStandardSetter(gs, methodBuilder);
+            warningMaybe = appendCopyFieldForStandardSetter(gs, methodBuilder);
         }
         lastReturnTypeAdded = gs.getSetter().getReturnType();
-        return errorMaybe;
+        return warningMaybe;
     }
 
     /**
@@ -419,11 +362,11 @@ public class CreateStaticCopyMethodStringGenerator {
      * .setFieldA(original.getFieldA())
      * .setFieldB(original.getFieldB())
      */
-    private Optional<PsiFieldGenerationError> appendCopyFieldForFluentSetter(
+    private Optional<CopyFieldGenerationWarning> appendCopyFieldForFluentSetter(
             final PsiGetterSetter gs,
             final StringBuilder methodBuilder
     ) {
-        Optional<PsiMethod> staticCopyMethod = findStaticCopyMethodForType(
+        Optional<PsiMethod> staticCopyMethod = PsiTools.findStaticCopyMethodForType(
                 gs.getField().getType(),
                 gs.getField().getProject()
         );
@@ -454,17 +397,23 @@ public class CreateStaticCopyMethodStringGenerator {
             copyFieldString.append(copyFieldWithCopyMethod);
             methodBuilder.append(copyFieldString);
 
-            Optional<PsiFieldGenerationError> infiniteLoopErrorMaybe = detectPossibleInfiniteLoop(gs);
-            return infiniteLoopErrorMaybe;
+            Optional<CopyFieldGenerationWarning> infiniteLoopWarningsMaybe = detectPossibleInfiniteLoop(gs);
+            return infiniteLoopWarningsMaybe;
         } else {
             String copyField = String.format(".%s(original.%s())\n", setter.getName(), getter.getName());
             copyFieldString.append(copyField);
             methodBuilder.append(copyFieldString);
             // If the class is a project class then warn the user about a shallow copy
-            Optional<PsiClass> projectClassMaybe = findClassFromTypeInProject(gs.getField().getType(), gs.getField().getProject());
+            Optional<PsiClass> projectClassMaybe = PsiTools.findClassFromTypeInProject(
+                    gs.getField().getType(),
+                    gs.getField().getProject()
+            );
             // Only warn user if this class is in the project and is not an enum
             if (projectClassMaybe.isPresent() && !projectClassMaybe.get().isEnum()) {
-                PsiFieldGenerationError shallowCopyWarning = new PsiFieldGenerationError(gs.getField(), PsiFieldGenerationErrorReason.NO_COPY_METHOD);
+                CopyFieldGenerationWarning shallowCopyWarning = new CopyFieldGenerationWarning(
+                        gs.getField(),
+                        CopyFieldGenerationWarningReason.NO_COPY_METHOD
+                );
                 return Optional.of(shallowCopyWarning);
             } else {
                 return Optional.empty();
@@ -477,11 +426,11 @@ public class CreateStaticCopyMethodStringGenerator {
      * copy.setFieldA(original.getFieldA());
      * copy.setFieldB(original.getFieldB());
      */
-    private Optional<PsiFieldGenerationError> appendCopyFieldForStandardSetter(
+    private Optional<CopyFieldGenerationWarning> appendCopyFieldForStandardSetter(
             final PsiGetterSetter gs,
             final StringBuilder methodBuilder
     ) {
-        Optional<PsiMethod> staticCopyMethod = findStaticCopyMethodForType(
+        Optional<PsiMethod> staticCopyMethod = PsiTools.findStaticCopyMethodForType(
                 gs.getField().getType(),
                 gs.getField().getProject()
         );
@@ -506,16 +455,22 @@ public class CreateStaticCopyMethodStringGenerator {
             copyFieldString.append(copyFieldWithCopyMethod);
             methodBuilder.append(copyFieldString);
 
-            Optional<PsiFieldGenerationError> infiniteLoopErrorMaybe = detectPossibleInfiniteLoop(gs);
-            return infiniteLoopErrorMaybe;
+            Optional<CopyFieldGenerationWarning> infiniteLoopWarningsMaybe = detectPossibleInfiniteLoop(gs);
+            return infiniteLoopWarningsMaybe;
         } else {
             String copyField = String.format("copy.%s(original.%s());", setter.getName(), getter.getName());
             copyFieldString.append(copyField);
             methodBuilder.append(copyFieldString);
             // If the class is a project class then warn the user about a shallow copy
-            Optional<PsiClass> projectClassMaybe = findClassFromTypeInProject(gs.getField().getType(), gs.getField().getProject());
+            Optional<PsiClass> projectClassMaybe = PsiTools.findClassFromTypeInProject(
+                    gs.getField().getType(),
+                    gs.getField().getProject()
+            );
             if (projectClassMaybe.isPresent() && !projectClassMaybe.get().isEnum()) {
-                PsiFieldGenerationError shallowCopyWarning = new PsiFieldGenerationError(gs.getField(), PsiFieldGenerationErrorReason.NO_COPY_METHOD);
+                CopyFieldGenerationWarning shallowCopyWarning = new CopyFieldGenerationWarning(
+                        gs.getField(),
+                        CopyFieldGenerationWarningReason.NO_COPY_METHOD
+                );
                 return Optional.of(shallowCopyWarning);
             } else {
                 return Optional.empty();
@@ -523,58 +478,14 @@ public class CreateStaticCopyMethodStringGenerator {
         }
     }
 
-    /**
-     * Find the static copy method for the given type in the scope of the given project, e.g.
-     * <p>
-     * Foo.copy(Foo original) { ...copy logic... }
-     */
-    private Optional<PsiMethod> findStaticCopyMethodForType(final PsiType type, final Project project) {
-        Optional<PsiClass> psiClassMaybe = findClassFromTypeInProject(type, project);
-        if (psiClassMaybe.isPresent()) {
-            PsiClass psiClass = psiClassMaybe.get();
-            List<PsiMethod> methods = Arrays.asList(psiClass.getMethods());
-            List<PsiMethod> staticCopyMethods = methods
-                    .stream()
-                    .filter(method -> {
-                        // First find the static copy methods, confirm they return the given type, and that they have parameters
-                        return method.getName().equals("copy")
-                                && method.getReturnType() != null
-                                && method.getReturnType().equalsToText(type.getCanonicalText())
-                                && method.hasModifierProperty(PsiModifier.STATIC)
-                                && method.hasParameters();
-                    })
-                    .filter(method -> {
-                        // Now make sure it has exactly one parameter that is the same as the given type
-                        PsiParameterList parameterList = method.getParameterList();
-                        if (parameterList.isEmpty()) {
-                            return false;
-                        }
-                        List<PsiParameter> allParameters = Arrays.asList(parameterList.getParameters());
-                        if (allParameters.size() != 1) {
-                            return false;
-                        }
-                        PsiParameter theParameter = allParameters.get(0);
-                        return theParameter.getType().equalsToText(type.getCanonicalText());
-                    })
-                    .collect(Collectors.toList());
-            // At this point there should really only be 0 or 1 methods in staticCopyMethods since we have filtered down to a single method signature
-            if (staticCopyMethods.isEmpty()) {
-                return Optional.empty();
-            } else {
-                return Optional.of(staticCopyMethods.get(0));
-            }
-        }
-        return Optional.empty();
-    }
-
-    private Optional<PsiFieldGenerationError> detectPossibleInfiniteLoop(
+    private Optional<CopyFieldGenerationWarning> detectPossibleInfiniteLoop(
             final PsiGetterSetter gs
     ) {
 
-       // Try to detect if this field's class has a static copy method amd if calls this field's class's static copy method
-       // For example, suppose a class Foo has a field of type Bar, and Bar has a field of type Foo (a bi-directional relationship)
-       // We want to warn the user if we detect that the statement copyFoo.setBar(Bar.copy(originalFoo.getBar()) is in Foo::copy
-       // and copyBar.setFoo(Foo.copy(originalBar.getFoo())) is in Bar::copy
+        // Try to detect if this field's class has a static copy method amd if calls this field's class's static copy method
+        // For example, suppose a class Foo has a field of type Bar, and Bar has a field of type Foo (a bi-directional relationship)
+        // We want to warn the user if we detect that the statement copyFoo.setBar(Bar.copy(originalFoo.getBar()) is in Foo::copy
+        // and copyBar.setFoo(Foo.copy(originalBar.getFoo())) is in Bar::copy
 
         // Using Generate Static Copy Method for Bar in these comments as an example
         PsiField field = gs.getField();
@@ -590,12 +501,12 @@ public class CreateStaticCopyMethodStringGenerator {
             fieldType = field.getType();
         }
         // fieldType = Foo
-        Optional<PsiMethod> staticCopyMethodForField = findStaticCopyMethodForType(fieldType, field.getProject());
+        Optional<PsiMethod> staticCopyMethodForField = PsiTools.findStaticCopyMethodForType(fieldType, field.getProject());
         if (staticCopyMethodForField.isEmpty()) {
             // if type Foo does not have a static copy method then no warning here
             return Optional.empty();
         }
-        Optional<PsiClass> psiClassMaybe = findClassFromTypeInProject(
+        Optional<PsiClass> psiClassMaybe = PsiTools.findClassFromTypeInProject(
                 fieldType,
                 field.getProject()
         );
@@ -620,11 +531,11 @@ public class CreateStaticCopyMethodStringGenerator {
                     for (PsiStatement statement : staticCopyMethodForField.get().getBody().getStatements()) {
                         // We found Bar::copy, create a warning for the user so they can deal with it
                         if (statement.getText().contains(String.format("%s.copy(", classFieldType.getPresentableText()))) {
-                            PsiFieldGenerationError error = new PsiFieldGenerationError(
+                            CopyFieldGenerationWarning warning = new CopyFieldGenerationWarning(
                                     gs.getField(),
-                                    PsiFieldGenerationErrorReason.INFINITE_LOOP
+                                    CopyFieldGenerationWarningReason.INFINITE_LOOP
                             );
-                            return Optional.of(error);
+                            return Optional.of(warning);
                         }
                     }
                 }
@@ -633,24 +544,111 @@ public class CreateStaticCopyMethodStringGenerator {
         return Optional.empty();
     }
 
-    private static Optional<PsiClass> findClassFromTypeInProject(final PsiType type, final Project project) {
-        String canonicalTypeText = type.getCanonicalText();
-        PsiClass psiClass = JavaPsiFacade
-                .getInstance(project)
-                .findClass(canonicalTypeText, GlobalSearchScope.projectScope(project));
-        return Optional.ofNullable(psiClass);
+    private void appendErrorsAndWarnings(
+            final List<CopyFieldGenerationWarning> warnings,
+            final StringBuilder methodBuilder
+    ) {
+        List<String> fieldsWithoutGetterAndSetter = warnings
+                .stream()
+                .filter(w -> w.getReason() == CopyFieldGenerationWarningReason.NO_GETTER_SETTER)
+                .map(w -> w.getPsiField().getName())
+                .collect(Collectors.toList());
+        if (!fieldsWithoutGetterAndSetter.isEmpty()) {
+            // Inform user that some fields could not be copied due to lack of getter/setter
+            methodBuilder.append("\n");
+            String warning = String.format(
+                    "/* Could not generate lines for these fields due to lack of getter and setter: %s */",
+                    StringUtils.join(fieldsWithoutGetterAndSetter, ", ")
+            );
+            methodBuilder.append(warning);
+        }
+
+        List<String> mapErrors = warnings
+                .stream()
+                .filter(w -> w.getReason() == CopyFieldGenerationWarningReason.MAP)
+                .map(w -> w.getPsiField().getName())
+                .collect(Collectors.toList());
+
+        if (!mapErrors.isEmpty()) {
+            methodBuilder.append("\n");
+            String warning = String.format(
+                    "/* Only able to generate shallow copies for Maps: %s */",
+                    StringUtils.join(mapErrors, ", ")
+            );
+            methodBuilder.append(warning);
+        }
+
+        List<String> noCopyMethodErrors = warnings
+                .stream()
+                .filter(w -> w.getReason() == CopyFieldGenerationWarningReason.NO_COPY_METHOD)
+                .map(w -> w.getPsiField().getName())
+                .collect(Collectors.toList());
+
+        if (!noCopyMethodErrors.isEmpty()) {
+            methodBuilder.append("\n");
+            String warning = String.format(
+                    "/* Only able to generate shallow copies for the following fields due to lack of static copy method: %s */",
+                    StringUtils.join(noCopyMethodErrors, ", ")
+            );
+            methodBuilder.append(warning);
+        }
+
+        List<String> indeterminateCollectionTypeErrors = warnings
+                .stream()
+                .filter(w -> w.getReason() == CopyFieldGenerationWarningReason.INDETERMINATE_COLLECTION_TYPE)
+                .map(w -> w.getPsiField().getName())
+                .collect(Collectors.toList());
+
+        if (!indeterminateCollectionTypeErrors.isEmpty()) {
+            methodBuilder.append("\n");
+            String warning = String.format(
+                    "/* Only able to generate shallow copies for these indeterminate collections: %s */",
+                    StringUtils.join(indeterminateCollectionTypeErrors, ", ")
+            );
+            methodBuilder.append(warning);
+        }
+
+        List<String> indeterminateType = warnings
+                .stream()
+                .filter(w -> w.getReason() == CopyFieldGenerationWarningReason.INDETERMINATE_TYPE)
+                .map(w -> w.getPsiField().getName())
+                .collect(Collectors.toList());
+
+        if (!indeterminateType.isEmpty()) {
+            methodBuilder.append("\n");
+            String warning = String.format(
+                    "/* Only able to generate shallow copies for these indeterminate types: %s */",
+                    StringUtils.join(indeterminateType, ", ")
+            );
+            methodBuilder.append(warning);
+        }
+
+        List<String> infiniteLoop = warnings
+                .stream()
+                .filter(w -> w.getReason() == CopyFieldGenerationWarningReason.INFINITE_LOOP)
+                .map(w -> w.getPsiField().getName())
+                .collect(Collectors.toList());
+
+        if (!infiniteLoop.isEmpty()) {
+            methodBuilder.append("\n");
+            String warning = String.format(
+                    "/* POSSIBLE INFINITE LOOP DETECTED VIA COPY METHODS FOR THESE FIELDS: %s */",
+                    StringUtils.join(infiniteLoop, ", ")
+            );
+            methodBuilder.append(warning);
+        }
     }
 
     /**
      * Holds a field and the reason it could not be generated or a warning reason for its generation
      */
-    private static class PsiFieldGenerationError {
+    private static class CopyFieldGenerationWarning {
         private PsiField psiField;
-        private PsiFieldGenerationErrorReason reason;
+        private CopyFieldGenerationWarningReason reason;
 
-        public PsiFieldGenerationError(
+        public CopyFieldGenerationWarning(
                 final PsiField psiField,
-                final PsiFieldGenerationErrorReason reason
+                final CopyFieldGenerationWarningReason reason
         ) {
             this.psiField = psiField;
             this.reason = reason;
@@ -664,16 +662,16 @@ public class CreateStaticCopyMethodStringGenerator {
             this.psiField = psiField;
         }
 
-        public PsiFieldGenerationErrorReason getReason() {
+        public CopyFieldGenerationWarningReason getReason() {
             return reason;
         }
 
-        public void setReason(PsiFieldGenerationErrorReason reason) {
+        public void setReason(CopyFieldGenerationWarningReason reason) {
             this.reason = reason;
         }
     }
 
-    private enum PsiFieldGenerationErrorReason {
+    private enum CopyFieldGenerationWarningReason {
         NO_GETTER_SETTER,
         MAP,
         NO_COPY_METHOD,

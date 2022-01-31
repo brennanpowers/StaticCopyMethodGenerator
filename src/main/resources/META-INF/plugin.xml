@@ -20,7 +20,7 @@
         <!-- Add your actions here -->
         <action id="com.brennanpowers.plugins.intellij.CreateStaticCopyMethodAction" class="com.brennanpowers.plugins.intellij.CreateStaticCopyMethodAction"
                 text="Create Static Copy Method" description="Create a static copy method for this class">
-            <add-to-group group-id="GenerateGroup" anchor="last"/>
+            <add-to-group group-id="JavaGenerateGroup1" anchor="last"/>
         </action>
     </actions>
 </idea-plugin>
