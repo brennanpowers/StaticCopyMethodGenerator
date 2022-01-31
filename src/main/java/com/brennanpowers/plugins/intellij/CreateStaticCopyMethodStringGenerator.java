@@ -17,7 +17,7 @@ import java.util.stream.Collectors;
  */
 public class CreateStaticCopyMethodStringGenerator {
     private PsiType lastReturnTypeAdded = null;
-    private List<String> variableNames = new ArrayList<>();
+    private final List<String> variableNames = new ArrayList<>();
 
     /**
      * Generate the static copy method for the given class
@@ -193,6 +193,7 @@ public class CreateStaticCopyMethodStringGenerator {
      * Append the copy block for an array type
      */
     private Optional<PsiFieldGenerationError> appendArrayTypeCopier(final PsiGetterSetter gs, final StringBuilder methodBuilder) {
+        addSemicolonIfNeeded(methodBuilder);
         Optional<PsiMethod> staticCopyMethod = findStaticCopyMethodForType(
                 gs.getField().getType().getDeepComponentType(),
                 gs.getField().getProject()
@@ -569,8 +570,17 @@ public class CreateStaticCopyMethodStringGenerator {
     private Optional<PsiFieldGenerationError> detectPossibleInfiniteLoop(
             final PsiGetterSetter gs
     ) {
+
+       // Try to detect if this field's class has a static copy method amd if calls this field's class's static copy method
+       // For example, suppose a class Foo has a field of type Bar, and Bar has a field of type Foo (a bi-directional relationship)
+       // We want to warn the user if we detect that the statement copyFoo.setBar(Bar.copy(originalFoo.getBar()) is in Foo::copy
+       // and copyBar.setFoo(Foo.copy(originalBar.getFoo())) is in Bar::copy
+
+        // Using Generate Static Copy Method for Bar in these comments as an example
         PsiField field = gs.getField();
+        // field = Bar.foo, now try to determine the type of Bar.foo
         PsiType fieldType = null;
+        // We also want this too work for fields of type Foo[] and Collection<Foo>
         if (PsiTools.isArrayType(field)) {
             fieldType = field.getType().getDeepComponentType();
         } else if (PsiTools.isCollectionType(field)) {
@@ -579,9 +589,10 @@ public class CreateStaticCopyMethodStringGenerator {
         if (fieldType == null) {
             fieldType = field.getType();
         }
-
+        // fieldType = Foo
         Optional<PsiMethod> staticCopyMethodForField = findStaticCopyMethodForType(fieldType, field.getProject());
         if (staticCopyMethodForField.isEmpty()) {
+            // if type Foo does not have a static copy method then no warning here
             return Optional.empty();
         }
         Optional<PsiClass> psiClassMaybe = findClassFromTypeInProject(
@@ -589,21 +600,34 @@ public class CreateStaticCopyMethodStringGenerator {
                 field.getProject()
         );
         if (gs.getPsiClass() == null || gs.getPsiClass().getQualifiedName() == null || psiClassMaybe.isEmpty()) {
+            // If this class doesn't exist in the project then no warning here
             return Optional.empty();
         }
+        // psiClass = Foo.class
         for (PsiField classField : psiClassMaybe.get().getAllFields()) {
+            // Loop through the fields in Foo and try to find Bar
             PsiType classFieldType = classField.getType();
+            // We also want this to work for types Bar[] and Collection<Bar>
             if (PsiTools.isArrayType(classField)) {
                 classFieldType = classFieldType.getDeepComponentType();
             } else if (PsiTools.isCollectionType(classField)) {
                 classFieldType = PsiUtil.extractIterableTypeParameter(classField.getType(), false);
             }
             if (classFieldType != null && classFieldType.equalsToText(gs.getPsiClass().getQualifiedName())) {
-                PsiFieldGenerationError error = new PsiFieldGenerationError(
-                        gs.getField(),
-                        PsiFieldGenerationErrorReason.INFINITE_LOOP
-                );
-                return Optional.of(error);
+                // We have found a field of type Bar (or Bar[] or Collection<Bar>) in Foo
+                if (staticCopyMethodForField.get().getBody() != null) {
+                    // Now look in Foo's static copy method to see if it calls Bar::copy
+                    for (PsiStatement statement : staticCopyMethodForField.get().getBody().getStatements()) {
+                        // We found Bar::copy, create a warning for the user so they can deal with it
+                        if (statement.getText().contains(String.format("%s.copy(", classFieldType.getPresentableText()))) {
+                            PsiFieldGenerationError error = new PsiFieldGenerationError(
+                                    gs.getField(),
+                                    PsiFieldGenerationErrorReason.INFINITE_LOOP
+                            );
+                            return Optional.of(error);
+                        }
+                    }
+                }
             }
         }
         return Optional.empty();
