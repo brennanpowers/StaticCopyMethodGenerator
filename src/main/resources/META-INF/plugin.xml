@@ -1,10 +1,15 @@
 <idea-plugin>
     <id>com.brennanpowers.plugins.intellij.StaticCopyMethodGenerator</id>
-    <name>Create Static Copy Method</name>
+    <name>Static Copy Method Generator</name>
     <vendor email="brennanpowers@gmail.com" url="https://github.com/brennanpowers">Brennan Powers</vendor>
 
     <description><![CDATA[
-    Creates a static copy method for the target class.<br>
+        Adds an option to generate a static copy method for a Java class in IntelliJ's Generate dialog.  Attempts to make deep
+        copies when available by using other static copy methods found within the project's class files.
+        Attempts to be null-safe and tries to use fluent setters where possible. Adds warnings in comments when a line for a
+        field could not be generated, when only a shallow copy could be generated, or when a possible infinite loop is detected
+        in a bi-directional relationship.
+        <br>
     ]]></description>
 
     <!-- please see https://plugins.jetbrains.com/docs/intellij/plugin-compatibility.html
@@ -19,7 +24,7 @@
     <actions>
         <!-- Add your actions here -->
         <action id="com.brennanpowers.plugins.intellij.CreateStaticCopyMethodAction" class="com.brennanpowers.plugins.intellij.CreateStaticCopyMethodAction"
-                text="Create Static Copy Method" description="Create a static copy method for this class">
+                text="Static Copy Method" description="Create a static copy method for this class">
             <add-to-group group-id="JavaGenerateGroup1" anchor="last"/>
         </action>
     </actions>
